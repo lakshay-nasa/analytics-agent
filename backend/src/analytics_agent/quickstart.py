@@ -332,7 +332,23 @@ def _bootstrap_and_launch(config_dir: Path, port: int, *, open_setup: bool = Fal
         text=True,
     )
     if result.returncode != 0:
-        click.echo(result.stderr, err=True)
+        db_url = env.get("DATABASE_URL", "")
+        if (
+            db_url
+            and "mysql" in db_url
+            and ("Can't connect" in result.stderr or "nodename nor servname" in result.stderr)
+        ):
+            click.echo(
+                f"\n  ✗ Cannot connect to the MySQL database configured in {config_dir}/.env\n"
+                f"    DATABASE_URL: {db_url}\n\n"
+                "  This is likely a leftover from a previous demo run.\n"
+                "  To start fresh with a local SQLite database, reset your config:\n\n"
+                f"    rm -rf {config_dir}\n\n"
+                "  Then re-run:  uvx datahub-analytics-agent quickstart",
+                err=True,
+            )
+        else:
+            click.echo(result.stderr, err=True)
         sys.exit(result.returncode)
     click.echo("  ✓ Database initialised")
 
