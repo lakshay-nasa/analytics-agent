@@ -264,6 +264,10 @@ if _gms_healthy; then
 else
     go "No DataHub GMS found at ${DATAHUB_GMS_URL} — starting DataHub OSS quickstart..."
 
+    # DataHub v1.5+ requires these to be non-empty; auto-generate if not set.
+    export DATAHUB_TOKEN_SERVICE_SIGNING_KEY="${DATAHUB_TOKEN_SERVICE_SIGNING_KEY:-$(openssl rand -hex 32)}"
+    export DATAHUB_TOKEN_SERVICE_SALT="${DATAHUB_TOKEN_SERVICE_SALT:-$(openssl rand -hex 16)}"
+
     # ── Optional: enable semantic search if OPENAI_API_KEY is available ───────
     # Semantic search requires GMS to receive extra env vars that the default
     # quickstart compose does not include. We inject them via a compose override
