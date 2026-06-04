@@ -15,9 +15,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-FICTION_RETAIL_URL = (
-    "https://github.com/datahub-project/static-assets/raw/main/datasets/fiction-retail/fiction-retail.db"
-)
+FICTION_RETAIL_URL = "https://github.com/datahub-project/static-assets/raw/main/datasets/fiction-retail/fiction-retail.db"
 
 TABLES = [
     "customers",

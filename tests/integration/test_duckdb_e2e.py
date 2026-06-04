@@ -348,9 +348,7 @@ async def test_engine_list_tables(duckdb_engine):
     result = tools["list_tables"].invoke({"schema": ""})
     tables = orjson.loads(result)
     table_names = {t["name"] for t in tables}
-    assert {"orders", "order_items", "products"} == table_names, (
-        f"Unexpected tables: {table_names}"
-    )
+    assert {"orders", "order_items", "products"} == table_names, f"Unexpected tables: {table_names}"
 
 
 @pytest.mark.asyncio

@@ -391,7 +391,9 @@ def _seed_demo_context(gms_url: str, token: str, database: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest Fiction Retail metadata into DataHub via GraphQL")
+    parser = argparse.ArgumentParser(
+        description="Ingest Fiction Retail metadata into DataHub via GraphQL"
+    )
     parser.add_argument("--gms-url", default="http://localhost:8080")
     parser.add_argument("--token", default="")
     parser.add_argument("--database", default="analytics_agent_demo")
