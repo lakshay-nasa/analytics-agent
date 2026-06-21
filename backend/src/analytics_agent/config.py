@@ -245,6 +245,19 @@ class Settings(BaseSettings):
     # Database — defaults to the user config dir; override via DATABASE_URL env var
     database_url: str = f"sqlite+aiosqlite:///{_CONFIG_DIR}/data/agent.db"
 
+    # Connection pool — applied only to non-SQLite engines (MySQL / PostgreSQL).
+    # pool_pre_ping is critical for asyncpg: without it, a connection broken by
+    # task cancellation stays in the pool and the next checkout hangs forever.
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_recycle: int = 1800
+    db_pool_pre_ping: bool = True
+    db_pool_timeout: int = 10
+    # asyncpg only: per-statement timeout (seconds) applied via connect_args so
+    # pool_pre_ping's SELECT 1 on a wedged connection fails fast instead of
+    # blocking forever. 0 disables. Ignored for SQLite / MySQL.
+    db_command_timeout: int = 30
+
     # Engine config — defaults to the user config dir; override via ENGINES_CONFIG env var
     engines_config: str = str(_CONFIG_DIR / "config.yaml")
     sql_row_limit: int = 500
