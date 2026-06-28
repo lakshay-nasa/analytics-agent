@@ -327,14 +327,14 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. Load sample data (idempotent)
 # ──────────────────────────────────────────────────────────────────────────────
-go "Checking if Olist sample data is already loaded..."
+go "Checking if Fiction Retail sample data is already loaded..."
 
-# Returns 0 only if ALL 7 expected tables exist AND at least one key table
+# Returns 0 only if ALL 10 expected tables exist AND at least one key table
 # (orders) has rows — so empty or partial loads always re-trigger.
 _sample_data_loaded() {
     uv run python -c "
 import pymysql, sys
-REQUIRED = {'olist_customers','olist_orders','olist_order_items','olist_order_payments','olist_order_reviews','olist_products','olist_sellers','product_category_name_translation'}
+REQUIRED = {'customers','orders','order_items','products','suppliers','inventory','warehouses','shipments','returns','promotions'}
 try:
     conn = pymysql.connect(
         host='localhost', port=3306,
@@ -350,7 +350,7 @@ try:
         missing = REQUIRED - found
         print(f'Missing tables: {missing}', file=sys.stderr)
         conn.close(); sys.exit(1)
-    cur.execute(\"SELECT COUNT(*) FROM \`${MYSQL_DATABASE:-analytics_agent_demo}\`.\`olist_orders\`\")
+    cur.execute(\"SELECT COUNT(*) FROM \`${MYSQL_DATABASE:-analytics_agent_demo}\`.\`orders\`\")
     row_count = cur.fetchone()[0]
     conn.close()
     if row_count == 0:
@@ -367,10 +367,10 @@ except Exception as e:
 # NOTE: assignment inside `if` suppresses set -e for the subshell exit code,
 # which is what we want — a non-zero exit means "not loaded yet", not a fatal error.
 if _check_result=$(_sample_data_loaded); then
-    ok "Olist sample data already loaded — ${_check_result}"
+    ok "Fiction Retail sample data already loaded — ${_check_result}"
 else
     [[ -n "${_check_result:-}" ]] && warn "${_check_result}"
-    go "Loading Olist sample data into MySQL..."
+    go "Loading Fiction Retail sample data into MySQL..."
     cd "$REPO_ROOT"
     uv run python scripts/load_sample_data.py \
         --user "$MYSQL_USER" \
@@ -442,19 +442,28 @@ DISABLE_NEWER_GMS_FIELD_DETECTION=true
 ENGINES_CONFIG=/app/config.yaml
 EOF
 
-# Append LLM key if one was found in the environment — otherwise the wizard handles it
-if [[ "$_LLM_KEY_SOURCE" == "anthropic" ]]; then
-    printf '\nLLM_PROVIDER=anthropic\nANTHROPIC_API_KEY=%s\n' "${ANTHROPIC_API_KEY}" >> .env.quickstart
-elif [[ "$_LLM_KEY_SOURCE" == "openai" ]]; then
-    printf '\nLLM_PROVIDER=openai\nOPENAI_API_KEY=%s\n' "${OPENAI_API_KEY}" >> .env.quickstart
-elif [[ "$_LLM_KEY_SOURCE" == "google" ]]; then
-    printf '\nLLM_PROVIDER=google\nGOOGLE_API_KEY=%s\n' "${GOOGLE_API_KEY}" >> .env.quickstart
-elif [[ "$_LLM_KEY_SOURCE" == "bedrock" ]]; then
-    {
-        printf '\nLLM_PROVIDER=bedrock\n'
-        printf 'AWS_REGION=%s\n' "${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}"
-        [[ -n "${AWS_PROFILE:-}" ]] && printf 'AWS_PROFILE=%s\n' "$AWS_PROFILE"
-    } >> .env.quickstart
+# Pick the initial LLM_PROVIDER from what triggered the wizard, but always
+# pass through every credential source the host has set. That way the user
+# can switch providers from the Settings UI without re-running quickstart.
+case "$_LLM_KEY_SOURCE" in
+    anthropic) printf '\nLLM_PROVIDER=anthropic\n' >> .env.quickstart ;;
+    openai)    printf '\nLLM_PROVIDER=openai\n'    >> .env.quickstart ;;
+    google)    printf '\nLLM_PROVIDER=google\n'    >> .env.quickstart ;;
+    bedrock)   printf '\nLLM_PROVIDER=bedrock\n'   >> .env.quickstart ;;
+esac
+
+# Pass every API key the host has set, regardless of which provider was
+# selected at quickstart time. Lets the operator switch providers later
+# without restarting the container.
+[[ -n "${ANTHROPIC_API_KEY:-}" ]] && printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY" >> .env.quickstart
+[[ -n "${OPENAI_API_KEY:-}"    ]] && printf 'OPENAI_API_KEY=%s\n'    "$OPENAI_API_KEY"    >> .env.quickstart
+[[ -n "${GOOGLE_API_KEY:-}"    ]] && printf 'GOOGLE_API_KEY=%s\n'    "$GOOGLE_API_KEY"    >> .env.quickstart
+
+# AWS region/profile — emit whenever Bedrock is even *available* on the
+# host so a later switch to Bedrock in the UI works without restart.
+if [[ -d "$HOME/.aws" ]]; then
+    printf 'AWS_REGION=%s\n' "${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}" >> .env.quickstart
+    [[ -n "${AWS_PROFILE:-}" ]] && printf 'AWS_PROFILE=%s\n' "$AWS_PROFILE" >> .env.quickstart
 fi
 
 ok ".env.quickstart written (uses host.docker.internal — your .env is untouched)"
@@ -483,17 +492,23 @@ cd "$REPO_ROOT"
 # Stop and remove any previous quickstart container
 docker rm -f analytics-agent-quickstart 2>/dev/null && warn "Removed previous analytics-agent-quickstart container" || true
 
-# Mount ~/.aws read-only when using Bedrock so boto3 can pick up profiles / SSO cache.
-_AWS_MOUNT=()
-if [[ "$_LLM_KEY_SOURCE" == "bedrock" ]]; then
-    _AWS_MOUNT=(-v "$HOME/.aws:/root/.aws:ro")
+# Mount every credential source the host has set up — read-only — so the
+# operator can switch LLM providers via the Settings UI without
+# re-running quickstart. boto3 / gcloud / etc. will find their configs
+# at the standard paths inside the container.
+_CRED_MOUNTS=()
+if [[ -d "$HOME/.aws" ]]; then
+    _CRED_MOUNTS+=(-v "$HOME/.aws:/root/.aws:ro")
+fi
+if [[ -d "$HOME/.config/gcloud" ]]; then
+    _CRED_MOUNTS+=(-v "$HOME/.config/gcloud:/root/.config/gcloud:ro")
 fi
 
 docker run -d \
     --name analytics-agent-quickstart \
     --env-file .env.quickstart \
     -v "${REPO_ROOT}/config.yaml:/app/config.yaml:ro" \
-    ${_AWS_MOUNT:+"${_AWS_MOUNT[@]}"} \
+    ${_CRED_MOUNTS:+"${_CRED_MOUNTS[@]}"} \
     -p 8100:8100 \
     analytics-agent-quickstart
 
@@ -564,11 +579,11 @@ fi
 echo -e "  ${BOLD}DataHub UI:${NC}  http://localhost:9002  (datahub / datahub)"
 echo ""
 echo -e "  ${BOLD}Try asking:${NC}"
-echo "    • Top 10 categories by revenue?"
+echo "    • Top 5 product categories by revenue?"
 echo "    • Monthly order volumes (chart)"
-echo "    • States with best review scores?"
-echo "    • Average delivery time by category"
-echo "    • Sellers with most late deliveries"
+echo "    • Which warehouses have the most shipments?"
+echo "    • What products are below their reorder threshold?"
+echo "    • Which suppliers have the most products?"
 echo ""
 echo "  Stop:  docker stop analytics-agent-quickstart"
 echo "  Logs:  docker logs -f analytics-agent-quickstart"
