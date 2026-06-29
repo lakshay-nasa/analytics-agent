@@ -57,6 +57,7 @@ check_cmd docker       "Install Docker Desktop: https://www.docker.com/products/
 check_cmd datahub      "Install DataHub CLI: pip install acryl-datahub"
 check_cmd uv           "Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
 check_cmd python3      "Install Python 3.11+: https://python.org"
+check_cmd openssl      "Install OpenSSL: https://openssl.org (needed to generate DataHub signing keys)"
 # pnpm not required — the Docker image builds the frontend internally
 
 # ──────────────────────────────────────────────────────────────────────────────
